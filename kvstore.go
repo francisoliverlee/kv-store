@@ -1,6 +1,7 @@
 package kvstore
 
 import (
+	"errors"
 	"fmt"
 	"github.com/dgraph-io/badger/v4"
 	"os"
@@ -22,6 +23,8 @@ type KvStore interface {
 	PSet(bucket []byte, keys, values [][]byte) error
 
 	PGet(bucket []byte, keys [][]byte) ([][]byte, error)
+
+	PSet1(bucket []byte, keys, values [][]byte, beforeFlushFunc func() error) error
 
 	Delete(bucket, key []byte) error
 
@@ -89,7 +92,7 @@ func NewBadgerStore(opts badger.Options) (KvStore, error) {
 
 func (b badgerStore) Set(bucket, k []byte, v []byte) error {
 	newKey := AppendBytes(len(bucket)+len(k), bucket, k)
-	l("Set", newKey)
+	l("Set", newKey, v)
 	return b.db.Update(func(txn *badger.Txn) error {
 		return txn.Set(newKey, v)
 	})
@@ -97,7 +100,6 @@ func (b badgerStore) Set(bucket, k []byte, v []byte) error {
 
 func (b badgerStore) Get(bucket, k []byte) (result []byte, found bool, e error) {
 	newKey := AppendBytes(len(bucket)+len(k), bucket, k)
-	l("Get", newKey)
 	var v []byte
 
 	err := b.db.View(func(txn *badger.Txn) error {
@@ -110,8 +112,9 @@ func (b badgerStore) Get(bucket, k []byte) (result []byte, found bool, e error) 
 		}
 		return err
 	})
+	l("Get", newKey, v)
 
-	if err == badger.ErrKeyNotFound {
+	if errors.Is(err, badger.ErrKeyNotFound) {
 		return nil, false, err
 	}
 	if err == nil {
@@ -124,7 +127,7 @@ func (b badgerStore) PSet(bucket []byte, keys, values [][]byte) error {
 	wb := b.db.NewWriteBatch()
 	for i, key := range keys {
 		newKey := AppendBytes(len(bucket)+len(key), bucket, key)
-		l("PSet", newKey)
+		l("PSet", newKey, values[i])
 		err := wb.Set(newKey, values[i])
 		if err != nil {
 			return err
@@ -133,19 +136,40 @@ func (b badgerStore) PSet(bucket []byte, keys, values [][]byte) error {
 	return wb.Flush()
 }
 
+func (b badgerStore) PSet1(bucket []byte, keys, values [][]byte, beforeFlushFunc func() error) error {
+	return b.db.Update(func(tx *badger.Txn) error {
+		for i, k := range keys {
+			newKey := AppendBytes(len(bucket)+len(k), bucket, k)
+			l("PSet1", newKey, values[i])
+
+			if err := tx.Set(newKey, values[i]); err != nil {
+				return err
+			}
+		}
+		if err := beforeFlushFunc(); err != nil {
+			return err // would not commit
+		}
+		return nil
+	})
+
+}
+
 func (b badgerStore) PGet(bucket []byte, keys [][]byte) ([][]byte, error) {
 	var values = make([][]byte, len(keys))
 	err := b.db.View(func(txn *badger.Txn) error {
 		for i, key := range keys {
 			newKey := AppendBytes(len(bucket)+len(key), bucket, key)
-			l("PGet", newKey)
 			item, err := txn.Get(newKey)
-			if err == nil {
-				v, err := item.ValueCopy(nil)
-				if err == nil {
-					values[i] = v
-				}
+			if err != nil {
+				return err
 			}
+			if err := item.Value(func(val []byte) error {
+				values[i] = val
+				return nil
+			}); err != nil {
+				return err
+			}
+			l("PGet", newKey, values[i])
 		}
 		return nil
 	})
@@ -313,7 +337,7 @@ func (b badgerStore) ReadOnly() bool {
 func l(method string, keys ...[]byte) {
 	if CanDebug {
 		for _, key := range keys {
-			fmt.Println(fmt.Sprintf("[%s] %s=%s", DebugFlag, method, string(key)))
+			fmt.Println(fmt.Sprintf("[%s] %s, %s", DebugFlag, method, string(key)))
 		}
 	}
 }
