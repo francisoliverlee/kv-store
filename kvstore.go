@@ -66,6 +66,8 @@ type KvStore interface {
 	AllKeys(async func(key string, deletedOrExpired bool)) error
 
 	Close() error
+
+	Sync() error
 }
 
 type badgerStore struct {
@@ -301,6 +303,11 @@ func (b badgerStore) Close() error {
 		return b.db.Close()
 	}
 	return nil
+}
+
+func (b badgerStore) Sync() error {
+	l("Sync")
+	return b.db.Sync()
 }
 
 func l(method string, keys ...[]byte) {
