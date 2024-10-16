@@ -15,6 +15,8 @@ var (
 )
 
 type KvStore interface {
+	ReadOnly() bool
+
 	Set(bucket, k []byte, v []byte) error
 
 	Get(bucket, k []byte) (result []byte, found bool, e error)
@@ -81,6 +83,10 @@ func NewBadgerStore(opts badger.Options) (KvStore, error) {
 		db:   db,
 		opts: opts,
 	}, nil
+}
+
+func (b badgerStore) ReadOnly() bool {
+	return b.opts.ReadOnly
 }
 
 func (b badgerStore) Set(bucket, k []byte, v []byte) error {
