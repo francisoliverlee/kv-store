@@ -68,11 +68,10 @@ type KvStore interface {
 
 type badgerStore struct {
 	db   *badger.DB
-	path string
 	opts badger.Options
 }
 
-func NewBadgerStore(path string, opts badger.Options) (KvStore, error) {
+func NewBadgerStore(opts badger.Options) (KvStore, error) {
 	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, err
@@ -80,7 +79,6 @@ func NewBadgerStore(path string, opts badger.Options) (KvStore, error) {
 
 	return badgerStore{
 		db:   db,
-		path: path,
 		opts: opts,
 	}, nil
 }
