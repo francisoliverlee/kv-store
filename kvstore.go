@@ -24,8 +24,6 @@ type KvStore interface {
 
 	PGet(bucket []byte, keys [][]byte) ([][]byte, error)
 
-	PSet1(bucket []byte, keys, values [][]byte, beforeFlushFunc func() error) error
-
 	Delete(bucket, key []byte) error
 
 	DeleteKeys(bucket []byte, keys [][]byte) error
@@ -69,6 +67,8 @@ type KvStore interface {
 	Close() error
 
 	Sync() error
+
+	Exec(f func(txn *badger.Txn) error) error
 
 	ReadOnly() bool
 }
@@ -134,24 +134,6 @@ func (b badgerStore) PSet(bucket []byte, keys, values [][]byte) error {
 		}
 	}
 	return wb.Flush()
-}
-
-func (b badgerStore) PSet1(bucket []byte, keys, values [][]byte, beforeFlushFunc func() error) error {
-	return b.db.Update(func(tx *badger.Txn) error {
-		for i, k := range keys {
-			newKey := AppendBytes(len(bucket)+len(k), bucket, k)
-			l("PSet1", newKey, values[i])
-
-			if err := tx.Set(newKey, values[i]); err != nil {
-				return err
-			}
-		}
-		if err := beforeFlushFunc(); err != nil {
-			return err // would not commit
-		}
-		return nil
-	})
-
 }
 
 func (b badgerStore) PGet(bucket []byte, keys [][]byte) ([][]byte, error) {
@@ -328,6 +310,13 @@ func (b badgerStore) Close() error {
 func (b badgerStore) Sync() error {
 	l("Sync")
 	return b.db.Sync()
+}
+
+func (b badgerStore) Exec(f func(tx *badger.Txn) error) error {
+	l("Exec")
+	return b.db.Update(func(txn *badger.Txn) error {
+		return f(txn)
+	})
 }
 
 func (b badgerStore) ReadOnly() bool {
