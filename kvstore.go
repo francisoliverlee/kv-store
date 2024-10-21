@@ -186,24 +186,29 @@ func (b badgerStore) PGet(bucket []byte, keys [][]byte) ([][]byte, error) {
 }
 
 func (b badgerStore) Delete(bucket, key []byte) error {
-	return b.db.Update(func(txn *badger.Txn) error {
-		newKey := AppendBytes(len(bucket)+len(key), bucket, key)
-		L("Delete", newKey)
-		return txn.Delete(key)
-	})
+	wb := b.db.NewWriteBatch()
+	defer wb.Cancel()
+	newKey := AppendBytes(len(bucket)+len(key), bucket, key)
+	L("Delete", newKey)
+	if err := wb.Delete(newKey); err != nil {
+		return err
+	} else {
+		return wb.Flush()
+	}
 }
 
 func (b badgerStore) DeleteKeys(bucket []byte, keys [][]byte) error {
-	return b.db.Update(func(txn *badger.Txn) error {
-		for _, key := range keys {
-			newKey := AppendBytes(len(bucket)+len(key), bucket, key)
-			L("DeleteKeys", newKey)
-			if err := txn.Delete(key); err != nil {
-				return err
-			}
+	wb := b.db.NewWriteBatch()
+	defer wb.Cancel()
+	for _, key := range keys {
+		newKey := AppendBytes(len(bucket)+len(key), bucket, key)
+		L("DeleteKeys", newKey)
+
+		if err := wb.Delete(newKey); err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	return wb.Flush()
 }
 
 func (b badgerStore) Keys(bucket []byte) (keys [][]byte, values [][]byte, err error) {
