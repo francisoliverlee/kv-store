@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dgraph-io/badger/v4"
+	"log"
 	"os"
+	"strings"
 )
 
 const (
@@ -13,19 +15,27 @@ const (
 
 var (
 	CanDebug = os.Getenv(DebugFlag) != ""
+
+	KeyNotFoundError = errors.New("key not found")
 )
 
 type KvStore interface {
+	// Set a key-value in a bucket
 	Set(bucket, k []byte, v []byte) error
 
+	// Get a key-value in a bucket
 	Get(bucket, k []byte) (result []byte, found bool, e error)
 
+	// PSet set multi key-values in a bucket
 	PSet(bucket []byte, keys, values [][]byte) error
 
+	// PGet get multi key-values in a bucket
 	PGet(bucket []byte, keys [][]byte) ([][]byte, error)
 
+	// Delete a key in a bucket
 	Delete(bucket, key []byte) error
 
+	// DeleteKeys delete multi keys in a bucket
 	DeleteKeys(bucket []byte, keys [][]byte) error
 
 	/*
@@ -41,8 +51,10 @@ type KvStore interface {
 		// 			  cluster#broker#name#@cluster-test@broker-test-933
 
 	*/
+	// Keys get key and value in a bucket
 	Keys(bucket []byte) (keys [][]byte, values [][]byte, err error)
 
+	// KeyStrings return key and values as bytes
 	KeyStrings(bucket []byte) (keys []string, values [][]byte, err error)
 
 	/*
@@ -58,19 +70,29 @@ type KvStore interface {
 		// 			  cluster#broker#name#@cluster-test@broker-test-933
 
 	*/
+	// KeysWithoutValues return key as []byte
 	KeysWithoutValues(bucket []byte) (keys [][]byte, err error)
 
+	// KeyStringsWithoutValues return key as string
 	KeyStringsWithoutValues(bucket []byte) (keys []string, err error)
 
+	// AllKeys to get
 	AllKeys(async func(key string, deletedOrExpired bool)) error
 
+	// Close a database conn
 	Close() error
 
+	// Sync flush
 	Sync() error
 
+	// Exec a transaction. should NOT use it
 	Exec(f func(txn *badger.Txn) error) error
 
+	// ReadOnly check db is read only
 	ReadOnly() bool
+
+	// Path store path for key and values'
+	Path() []string
 }
 
 type badgerStore struct {
@@ -92,7 +114,7 @@ func NewBadgerStore(opts badger.Options) (KvStore, error) {
 
 func (b badgerStore) Set(bucket, k []byte, v []byte) error {
 	newKey := AppendBytes(len(bucket)+len(k), bucket, k)
-	l("Set", newKey, v)
+	L("Set", newKey, v)
 	return b.db.Update(func(txn *badger.Txn) error {
 		return txn.Set(newKey, v)
 	})
@@ -112,10 +134,10 @@ func (b badgerStore) Get(bucket, k []byte) (result []byte, found bool, e error) 
 		}
 		return err
 	})
-	l("Get", newKey, v)
+	L("Get", newKey, v)
 
 	if errors.Is(err, badger.ErrKeyNotFound) {
-		return nil, false, err
+		return nil, false, KeyNotFoundError
 	}
 	if err == nil {
 		found = true
@@ -127,7 +149,7 @@ func (b badgerStore) PSet(bucket []byte, keys, values [][]byte) error {
 	wb := b.db.NewWriteBatch()
 	for i, key := range keys {
 		newKey := AppendBytes(len(bucket)+len(key), bucket, key)
-		l("PSet", newKey, values[i])
+		L("PSet", newKey, values[i])
 		err := wb.Set(newKey, values[i])
 		if err != nil {
 			return err
@@ -142,6 +164,10 @@ func (b badgerStore) PGet(bucket []byte, keys [][]byte) ([][]byte, error) {
 		for i, key := range keys {
 			newKey := AppendBytes(len(bucket)+len(key), bucket, key)
 			item, err := txn.Get(newKey)
+			if errors.Is(err, badger.ErrKeyNotFound) {
+				L("PGet", newKey, []byte(KeyNotFoundError.Error()))
+				return KeyNotFoundError
+			}
 			if err != nil {
 				return err
 			}
@@ -151,7 +177,7 @@ func (b badgerStore) PGet(bucket []byte, keys [][]byte) ([][]byte, error) {
 			}); err != nil {
 				return err
 			}
-			l("PGet", newKey, values[i])
+			L("PGet", newKey, values[i])
 		}
 		return nil
 	})
@@ -162,7 +188,7 @@ func (b badgerStore) PGet(bucket []byte, keys [][]byte) ([][]byte, error) {
 func (b badgerStore) Delete(bucket, key []byte) error {
 	return b.db.Update(func(txn *badger.Txn) error {
 		newKey := AppendBytes(len(bucket)+len(key), bucket, key)
-		l("Delete", newKey)
+		L("Delete", newKey)
 		return txn.Delete(key)
 	})
 }
@@ -171,7 +197,7 @@ func (b badgerStore) DeleteKeys(bucket []byte, keys [][]byte) error {
 	return b.db.Update(func(txn *badger.Txn) error {
 		for _, key := range keys {
 			newKey := AppendBytes(len(bucket)+len(key), bucket, key)
-			l("DeleteKeys", newKey)
+			L("DeleteKeys", newKey)
 			if err := txn.Delete(key); err != nil {
 				return err
 			}
@@ -181,7 +207,7 @@ func (b badgerStore) DeleteKeys(bucket []byte, keys [][]byte) error {
 }
 
 func (b badgerStore) Keys(bucket []byte) (keys [][]byte, values [][]byte, err error) {
-	l("Keys", bucket)
+	L("Keys", bucket)
 	err = b.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
@@ -206,7 +232,7 @@ func (b badgerStore) Keys(bucket []byte) (keys [][]byte, values [][]byte, err er
 }
 
 func (b badgerStore) KeyStrings(bucket []byte) (keys []string, values [][]byte, err error) {
-	l("KeyStrings", bucket)
+	L("KeyStrings", bucket)
 	err = b.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
@@ -230,7 +256,7 @@ func (b badgerStore) KeyStrings(bucket []byte) (keys []string, values [][]byte, 
 }
 
 func (b badgerStore) KeysWithoutValues(bucket []byte) (keys [][]byte, err error) {
-	l("KeysWithoutValues", bucket)
+	L("KeysWithoutValues", bucket)
 	err = b.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.IteratorOptions{
 			PrefetchValues: false,
@@ -257,7 +283,7 @@ func (b badgerStore) KeysWithoutValues(bucket []byte) (keys [][]byte, err error)
 }
 
 func (b badgerStore) KeyStringsWithoutValues(bucket []byte) (keys []string, err error) {
-	l("KeyStringsWithoutValues", bucket)
+	L("KeyStringsWithoutValues", bucket)
 	err = b.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.IteratorOptions{
 			PrefetchValues: false,
@@ -282,7 +308,7 @@ func (b badgerStore) KeyStringsWithoutValues(bucket []byte) (keys []string, err 
 }
 
 func (b badgerStore) AllKeys(async func(key string, deletedOrExpired bool)) error {
-	l("AllKeys")
+	L("AllKeys")
 	return b.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.IteratorOptions{
 			PrefetchValues: false,
@@ -300,7 +326,7 @@ func (b badgerStore) AllKeys(async func(key string, deletedOrExpired bool)) erro
 }
 
 func (b badgerStore) Close() error {
-	l("Close")
+	L("Close")
 	if !b.db.IsClosed() {
 		return b.db.Close()
 	}
@@ -308,12 +334,12 @@ func (b badgerStore) Close() error {
 }
 
 func (b badgerStore) Sync() error {
-	l("Sync")
+	L("Sync")
 	return b.db.Sync()
 }
 
 func (b badgerStore) Exec(f func(tx *badger.Txn) error) error {
-	l("Exec")
+	L("Exec")
 	return b.db.Update(func(txn *badger.Txn) error {
 		return f(txn)
 	})
@@ -323,10 +349,21 @@ func (b badgerStore) ReadOnly() bool {
 	return b.opts.ReadOnly
 }
 
-func l(method string, keys ...[]byte) {
+func (b badgerStore) Path() []string {
+	return []string{
+		b.opts.Dir,
+		b.opts.ValueDir,
+	}
+}
+
+func L(method string, keys ...[]byte) {
 	if CanDebug {
-		for _, key := range keys {
-			fmt.Println(fmt.Sprintf("[%s] %s, %s", DebugFlag, method, string(key)))
+		var arr []string
+		if keys != nil && len(keys) > 0 {
+			for _, key := range keys {
+				arr = append(arr, string(key))
+			}
 		}
+		log.Printf(fmt.Sprintf("%s,%s,%s:%s", Now(), DebugFlag, method, strings.Join(arr, ",")))
 	}
 }
