@@ -12,7 +12,7 @@ func TestBuildKey1(t *testing.T) {
 
 	newKey := []byte("hello@gmq")
 
-	r := buildKey(len(bucket)+len(key), bucket, key)
+	r := BuildKey(len(bucket)+len(key), bucket, key)
 	for i := 0; i < len(newKey); i++ {
 		assert.True(t, newKey[i] == r[i])
 	}
@@ -24,7 +24,7 @@ func TestBuildKey2(t *testing.T) {
 	key := []byte("gmq")
 	newKey := []byte("@gmq")
 
-	r := buildKey(len(bucket)+len(key), bucket, key)
+	r := BuildKey(len(bucket)+len(key), bucket, key)
 	for i := 0; i < len(newKey); i++ {
 		assert.True(t, newKey[i] == r[i])
 	}
@@ -37,7 +37,7 @@ func TestBuildKey3(t *testing.T) {
 
 	newKey := []byte("hello@")
 
-	r := buildKey(len(bucket)+len(key), bucket, key)
+	r := BuildKey(len(bucket)+len(key), bucket, key)
 	for i := 0; i < len(newKey); i++ {
 		assert.True(t, newKey[i] == r[i])
 	}
@@ -50,7 +50,7 @@ func TestBuildKey4(t *testing.T) {
 
 	newKey := []byte("@")
 
-	r := buildKey(len(bucket)+len(key), bucket, key)
+	r := BuildKey(len(bucket)+len(key), bucket, key)
 	for i := 0; i < len(newKey); i++ {
 		assert.True(t, newKey[i] == r[i])
 	}

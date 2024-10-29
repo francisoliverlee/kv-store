@@ -10,8 +10,8 @@ var (
 	SplitLength = len(Split)
 )
 
-// build a new key with bucket and keys
-func buildKey(totalSize int, bb ...[]byte) []byte {
+// BuildKey a new key with bucket and keys
+func BuildKey(totalSize int, bb ...[]byte) []byte {
 	result := make([]byte, totalSize+SplitLength*(len(bb)-1))
 	bc := 0
 	for _, b := range bb {

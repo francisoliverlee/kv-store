@@ -218,8 +218,61 @@ func Test_badgerStore_PSetAndeKeys(t *testing.T) {
 	assert.True(t, s.PSet(TestBucket, keys, values) == nil)
 
 	// keys
-	bucketPrefix := buildKey(len(TestBucket)+len(keyPrefix), TestBucket, []byte(keyPrefix))
+	bucketPrefix := BuildKey(len(TestBucket)+len(keyPrefix), TestBucket, []byte(keyPrefix))
 	if getKeys, getValues, err := s.Keys(TestBucket, bucketPrefix); err != nil {
+		t.Fatalf("keys error %v", err)
+	} else {
+		for i := 0; i < len(keys); i++ {
+			oldKey := string(keys[i])
+			oldValue := string(values[i])
+
+			val := ""
+			for i, k := range getKeys {
+				t.Logf("new key: " + string(k))
+				if string(k) == oldKey {
+					val = string(getValues[i])
+					break
+				}
+			}
+			if val == "" {
+				t.Fatalf("set key %s , but keys not return", oldKey)
+			}
+
+			if val != oldValue {
+				t.Fatalf("set key %s , keys return old value [%s] not same with new value [%s] ", oldKey, oldValue, val)
+			}
+
+		}
+	}
+
+}
+
+func Test_badgerStore_PSetAndeKeys2(t *testing.T) {
+	var dir = getDataPath()
+	t.Logf("data path %s", dir)
+
+	// new store
+	s, err := NewBadgerStore(badger.DefaultOptions(dir))
+	defer func() {
+		_ = os.RemoveAll(dir)
+	}()
+	assert.True(t, err == nil)
+
+	// make 100 key value pair
+	var keys [][]byte
+	var values [][]byte
+	keyPrefix := "tiger-"
+	valuePrefix := "i-like-kv-"
+	for i := 0; i < 100; i++ {
+		keys = append(keys, []byte(keyPrefix+strconv.Itoa(i)))
+		values = append(values, []byte(valuePrefix+strconv.Itoa(i)))
+	}
+
+	// set key value
+	assert.True(t, s.PSet(TestBucket, keys, values) == nil)
+
+	// keys
+	if getKeys, getValues, err := s.Keys(TestBucket, TestBucket); err != nil {
 		t.Fatalf("keys error %v", err)
 	} else {
 		for i := 0; i < len(keys); i++ {
@@ -273,7 +326,7 @@ func Test_badgerStore_PSetAndeKeyStrings(t *testing.T) {
 	assert.True(t, s.PSet(TestBucket, keys, values) == nil)
 
 	// keys
-	bucketPrefix := buildKey(len(TestBucket)+len(keyPrefix), TestBucket, []byte(keyPrefix))
+	bucketPrefix := BuildKey(len(TestBucket)+len(keyPrefix), TestBucket, []byte(keyPrefix))
 	if getKeys, getValues, err := s.KeyStrings(TestBucket, bucketPrefix); err != nil {
 		t.Fatalf("keys error %v", err)
 	} else {
@@ -328,7 +381,7 @@ func Test_badgerStore_PSetAndeKeysWithoutValues(t *testing.T) {
 	assert.True(t, s.PSet(TestBucket, keys, values) == nil)
 
 	// keys
-	bucketPrefix := buildKey(len(TestBucket)+len(keyPrefix), TestBucket, []byte(keyPrefix))
+	bucketPrefix := BuildKey(len(TestBucket)+len(keyPrefix), TestBucket, []byte(keyPrefix))
 	if getKeys, err := s.KeysWithoutValues(TestBucket, bucketPrefix); err != nil {
 		t.Fatalf("keys error %v", err)
 	} else {
@@ -378,7 +431,7 @@ func Test_badgerStore_PSetAndeKeyStringsWithoutValues(t *testing.T) {
 	assert.True(t, s.PSet(TestBucket, keys, values) == nil)
 
 	// keys
-	bucketPrefix := buildKey(len(TestBucket)+len(keyPrefix), TestBucket, []byte(keyPrefix))
+	bucketPrefix := BuildKey(len(TestBucket)+len(keyPrefix), TestBucket, []byte(keyPrefix))
 	if getKeys, err := s.KeyStringsWithoutValues(TestBucket, bucketPrefix); err != nil {
 		t.Fatalf("keys error %v", err)
 	} else {
