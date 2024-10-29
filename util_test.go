@@ -5,41 +5,53 @@ import (
 	"testing"
 )
 
-func TestAppendBytes(t *testing.T) {
-	arr1 := []byte{1, 2, 3}
-	arr2 := []byte{4, 5, 6}
+// test concat bucket and key
+func TestBuildKey1(t *testing.T) {
+	bucket := []byte("hello")
+	key := []byte("gmq")
 
-	arr3 := []byte{1, 2, 3, 4, 5, 6}
+	newKey := []byte("hello@gmq")
 
-	r := AppendBytes(len(arr1)+len(arr2), arr1, arr2)
-
-	for i := 0; i < len(arr3); i++ {
-		assert.True(t, arr3[i] == r[i])
+	r := buildKey(len(bucket)+len(key), bucket, key)
+	for i := 0; i < len(newKey); i++ {
+		assert.True(t, newKey[i] == r[i])
 	}
 }
 
-func TestAppendBytes2(t *testing.T) {
-	arr1 := []byte{1, 2, 3, 67, 78}
-	arr2 := []byte{4, 5, 6}
+// test concat bucket (empty) and key
+func TestBuildKey2(t *testing.T) {
+	bucket := []byte("")
+	key := []byte("gmq")
+	newKey := []byte("@gmq")
 
-	arr3 := []byte{1, 2, 3, 67, 78, 4, 5, 6}
-
-	r := AppendBytes(len(arr1)+len(arr2), arr1, arr2)
-
-	for i := 0; i < len(arr3); i++ {
-		assert.True(t, arr3[i] == r[i])
+	r := buildKey(len(bucket)+len(key), bucket, key)
+	for i := 0; i < len(newKey); i++ {
+		assert.True(t, newKey[i] == r[i])
 	}
 }
 
-func TestAppendBytes3(t *testing.T) {
-	arr1 := []byte{}
-	arr2 := []byte{4, 5, 6}
+// test concat bucket and key(empty)
+func TestBuildKey3(t *testing.T) {
+	bucket := []byte("hello")
+	key := []byte("")
 
-	arr3 := []byte{4, 5, 6}
+	newKey := []byte("hello@")
 
-	r := AppendBytes(len(arr1)+len(arr2), arr1, arr2)
+	r := buildKey(len(bucket)+len(key), bucket, key)
+	for i := 0; i < len(newKey); i++ {
+		assert.True(t, newKey[i] == r[i])
+	}
+}
 
-	for i := 0; i < len(arr3); i++ {
-		assert.True(t, arr3[i] == r[i])
+// test concat bucket(empty) and key(empty)
+func TestBuildKey4(t *testing.T) {
+	bucket := []byte("")
+	key := []byte("")
+
+	newKey := []byte("@")
+
+	r := buildKey(len(bucket)+len(key), bucket, key)
+	for i := 0; i < len(newKey); i++ {
+		assert.True(t, newKey[i] == r[i])
 	}
 }

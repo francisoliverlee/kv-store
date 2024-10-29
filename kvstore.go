@@ -15,7 +15,8 @@ const (
 
 var (
 	CanDebug = os.Getenv(DebugFlag) != ""
-
+)
+var (
 	KeyNotFoundError = errors.New("key not found")
 )
 
@@ -52,10 +53,10 @@ type KvStore interface {
 
 	*/
 	// Keys get key and value in a bucket
-	Keys(bucket []byte) (keys [][]byte, values [][]byte, err error)
+	Keys(bucket, prefix []byte) (keys [][]byte, values [][]byte, err error)
 
 	// KeyStrings return key and values as bytes
-	KeyStrings(bucket []byte) (keys []string, values [][]byte, err error)
+	KeyStrings(bucket, prefix []byte) (keys []string, values [][]byte, err error)
 
 	/*
 		https://github.com/dgraph-io/badger/issues/2014
@@ -71,10 +72,10 @@ type KvStore interface {
 
 	*/
 	// KeysWithoutValues return key as []byte
-	KeysWithoutValues(bucket []byte) (keys [][]byte, err error)
+	KeysWithoutValues(bucket, prefix []byte) (keys [][]byte, err error)
 
 	// KeyStringsWithoutValues return key as string
-	KeyStringsWithoutValues(bucket []byte) (keys []string, err error)
+	KeyStringsWithoutValues(bucket, prefix []byte) (keys []string, err error)
 
 	// AllKeys to get
 	AllKeys(async func(key string, deletedOrExpired bool)) error
@@ -113,7 +114,7 @@ func NewBadgerStore(opts badger.Options) (KvStore, error) {
 }
 
 func (b badgerStore) Set(bucket, k []byte, v []byte) error {
-	newKey := AppendBytes(len(bucket)+len(k), bucket, k)
+	newKey := buildKey(len(bucket)+len(k), bucket, k)
 	L("Set", newKey, v)
 	return b.db.Update(func(txn *badger.Txn) error {
 		return txn.Set(newKey, v)
@@ -121,7 +122,7 @@ func (b badgerStore) Set(bucket, k []byte, v []byte) error {
 }
 
 func (b badgerStore) Get(bucket, k []byte) (result []byte, found bool, e error) {
-	newKey := AppendBytes(len(bucket)+len(k), bucket, k)
+	newKey := buildKey(len(bucket)+len(k), bucket, k)
 	var v []byte
 
 	err := b.db.View(func(txn *badger.Txn) error {
@@ -148,7 +149,7 @@ func (b badgerStore) Get(bucket, k []byte) (result []byte, found bool, e error) 
 func (b badgerStore) PSet(bucket []byte, keys, values [][]byte) error {
 	wb := b.db.NewWriteBatch()
 	for i, key := range keys {
-		newKey := AppendBytes(len(bucket)+len(key), bucket, key)
+		newKey := buildKey(len(bucket)+len(key), bucket, key)
 		L("PSet", newKey, values[i])
 		err := wb.Set(newKey, values[i])
 		if err != nil {
@@ -162,7 +163,7 @@ func (b badgerStore) PGet(bucket []byte, keys [][]byte) ([][]byte, error) {
 	var values = make([][]byte, len(keys))
 	err := b.db.View(func(txn *badger.Txn) error {
 		for i, key := range keys {
-			newKey := AppendBytes(len(bucket)+len(key), bucket, key)
+			newKey := buildKey(len(bucket)+len(key), bucket, key)
 			item, err := txn.Get(newKey)
 			if errors.Is(err, badger.ErrKeyNotFound) {
 				L("PGet", newKey, []byte(KeyNotFoundError.Error()))
@@ -188,7 +189,7 @@ func (b badgerStore) PGet(bucket []byte, keys [][]byte) ([][]byte, error) {
 func (b badgerStore) Delete(bucket, key []byte) error {
 	wb := b.db.NewWriteBatch()
 	defer wb.Cancel()
-	newKey := AppendBytes(len(bucket)+len(key), bucket, key)
+	newKey := buildKey(len(bucket)+len(key), bucket, key)
 	L("Delete", newKey)
 	if err := wb.Delete(newKey); err != nil {
 		return err
@@ -201,7 +202,7 @@ func (b badgerStore) DeleteKeys(bucket []byte, keys [][]byte) error {
 	wb := b.db.NewWriteBatch()
 	defer wb.Cancel()
 	for _, key := range keys {
-		newKey := AppendBytes(len(bucket)+len(key), bucket, key)
+		newKey := buildKey(len(bucket)+len(key), bucket, key)
 		L("DeleteKeys", newKey)
 
 		if err := wb.Delete(newKey); err != nil {
@@ -211,18 +212,18 @@ func (b badgerStore) DeleteKeys(bucket []byte, keys [][]byte) error {
 	return wb.Flush()
 }
 
-func (b badgerStore) Keys(bucket []byte) (keys [][]byte, values [][]byte, err error) {
-	L("Keys", bucket)
+func (b badgerStore) Keys(bucket, prefix []byte) (keys [][]byte, values [][]byte, err error) {
+	L("Keys", prefix)
 	err = b.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
-		for it.Seek(bucket); it.ValidForPrefix(bucket); it.Next() {
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			item := it.Item()
 			if item.IsDeletedOrExpired() {
 				continue
 			}
-			k := item.Key()
-			keys = append(keys, k)
+			userKey := RemovePrefix(item.Key(), buildKey(len(bucket), bucket, []byte{})) // Remove bucket and split in key
+			keys = append(keys, userKey)
 			v, err := item.ValueCopy(nil)
 			values = append(values, v)
 			if err != nil {
@@ -236,17 +237,18 @@ func (b badgerStore) Keys(bucket []byte) (keys [][]byte, values [][]byte, err er
 	return keys, values, err
 }
 
-func (b badgerStore) KeyStrings(bucket []byte) (keys []string, values [][]byte, err error) {
-	L("KeyStrings", bucket)
+func (b badgerStore) KeyStrings(bucket, prefix []byte) (keys []string, values [][]byte, err error) {
+	L("KeyStrings", prefix)
 	err = b.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
-		for it.Seek(bucket); it.ValidForPrefix(bucket); it.Next() {
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			item := it.Item()
 			if item.IsDeletedOrExpired() {
 				continue
 			}
-			keys = append(keys, string(item.Key()))
+			userKey := RemovePrefix(item.Key(), buildKey(len(bucket), bucket, []byte{}))
+			keys = append(keys, string(userKey))
 			v, err := item.ValueCopy(nil)
 			values = append(values, v)
 			if err != nil {
@@ -260,9 +262,10 @@ func (b badgerStore) KeyStrings(bucket []byte) (keys []string, values [][]byte, 
 	return keys, values, err
 }
 
-func (b badgerStore) KeysWithoutValues(bucket []byte) (keys [][]byte, err error) {
-	L("KeysWithoutValues", bucket)
-	err = b.db.View(func(txn *badger.Txn) error {
+func (b badgerStore) KeysWithoutValues(bucket, prefix []byte) ([][]byte, error) {
+	L("KeysWithoutValues", prefix)
+	var keys [][]byte
+	return keys, b.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.IteratorOptions{
 			PrefetchValues: false,
 			PrefetchSize:   100,
@@ -271,24 +274,20 @@ func (b badgerStore) KeysWithoutValues(bucket []byte) (keys [][]byte, err error)
 		})
 		defer it.Close()
 
-		var tmpKeys [][]byte
-		for it.Seek(bucket); it.ValidForPrefix(bucket); it.Next() {
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			item := it.Item()
 			if item.IsDeletedOrExpired() {
 				continue
 			}
-			k := item.Key()
-			tmpKeys = append(tmpKeys, k)
+			userKey := RemovePrefix(item.Key(), buildKey(len(bucket), bucket, []byte{}))
+			keys = append(keys, userKey)
 		}
-		keys = tmpKeys
 		return nil
 	})
-
-	return keys, err
 }
 
-func (b badgerStore) KeyStringsWithoutValues(bucket []byte) (keys []string, err error) {
-	L("KeyStringsWithoutValues", bucket)
+func (b badgerStore) KeyStringsWithoutValues(bucket, prefix []byte) (keys []string, err error) {
+	L("KeyStringsWithoutValues", prefix)
 	err = b.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.IteratorOptions{
 			PrefetchValues: false,
@@ -297,13 +296,13 @@ func (b badgerStore) KeyStringsWithoutValues(bucket []byte) (keys []string, err 
 			AllVersions:    false,
 		})
 		defer it.Close()
-		for it.Seek(bucket); it.ValidForPrefix(bucket); it.Next() {
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			item := it.Item()
 			if item.IsDeletedOrExpired() {
 				continue
 			}
-			k := item.Key()
-			keys = append(keys, string(k))
+			userKey := RemovePrefix(item.Key(), buildKey(len(bucket), bucket, []byte{}))
+			keys = append(keys, string(userKey))
 
 		}
 		return nil
